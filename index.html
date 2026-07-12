@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Sign In</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg-dark:#0d1117; --card-bg:#161b22; --border:#30363d; --accent:#58a6ff; --accent-hover:#79c0ff; --text:#c9d1d9; --text-secondary:#8b949e; --danger:#f85149; --success:#3fb950; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:#010409; height:100vh; display:flex; align-items:center; justify-content:center; }
+        .split-container { display:flex; width:960px; height:600px; border-radius:16px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.4); background:var(--card-bg); }
+        .left-panel { width:42%; background:linear-gradient(160deg,#0d1b2a,#0a1628 40%,#0f1f38); padding:48px 36px; display:flex; flex-direction:column; justify-content:space-between; border-right:1px solid #1a3a5c; position:relative; }
+        .left-panel::before { content:''; position:absolute; top:-60px; right:-60px; width:200px; height:200px; border-radius:50%; background:radial-gradient(circle,rgba(88,166,255,0.1),transparent 70%); }
+        .brand-logo { position:relative; z-index:1; }
+        .brand-logo .logo-icon { width:48px; height:48px; background:var(--accent); border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:900; color:#fff; margin-bottom:12px; }
+        .brand-logo h1 { font-size:26px; font-weight:700; color:#fff; margin:0; }
+        .brand-logo .tagline { font-size:12px; color:#8b949e; letter-spacing:2px; text-transform:uppercase; margin-top:4px; }
+        .roles-list { position:relative; z-index:1; margin-top:24px; }
+        .roles-list h3 { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#8b949e; margin-bottom:14px; }
+        .role-item { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; margin-bottom:6px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); }
+        .role-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+        .role-dot.fleet { background:#58a6ff; } .role-dot.driver { background:#3fb950; } .role-dot.safety { background:#d2991d; } .role-dot.finance { background:#a371f7; }
+        .role-item span { color:#c9d1d9; font-size:13px; }
+        .right-panel { width:58%; padding:48px 40px; display:flex; flex-direction:column; justify-content:center; background:var(--card-bg); }
+        .right-panel h2 { font-size:22px; font-weight:600; color:#e6edf3; margin-bottom:6px; }
+        .right-panel .subtitle { font-size:13px; color:#8b949e; margin-bottom:28px; }
+        .form-group { margin-bottom:18px; }
+        .form-group label { display:block; font-size:12px; font-weight:500; color:#c9d1d9; margin-bottom:6px; }
+        .form-group input, .form-group select { width:100%; padding:11px 14px; border-radius:8px; border:1px solid var(--border); background:#0d1117; color:#e6edf3; font-size:14px; }
+        .form-group select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%238b949e'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 14px center; padding-right:36px; }
+        .btn-signin { width:100%; padding:12px; background:var(--accent); color:#fff; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
+        .btn-signin:hover { background:var(--accent-hover); }
+        .error-msg { color:var(--danger); font-size:12px; margin-top:8px; min-height:18px; text-align:center; }
+    </style>
+</head>
+<body>
+    <div class="split-container">
+        <div class="left-panel">
+            <div class="brand-logo"><div class="logo-icon">TO</div><h1>TransitOps</h1><p class="tagline">Fleet Intelligence Platform</p></div>
+            <div class="roles-list">
+                <h3>🔐 System Access Tiers</h3>
+                <div class="role-item"><div class="role-dot fleet"></div><span>Fleet Manager</span><small>Full Control</small></div>
+                <div class="role-item"><div class="role-dot driver"></div><span>Driver</span><small>Trip Management</small></div>
+                <div class="role-item"><div class="role-dot safety"></div><span>Safety Officer</span><small>Compliance</small></div>
+                <div class="role-item"><div class="role-dot finance"></div><span>Financial Analyst</span><small>View Financials</small></div>
+            </div>
+        </div>
+        <div class="right-panel">
+            <h2>Sign in to your account</h2>
+            <p class="subtitle">Select your role and click Sign In</p>
+            <div class="form-group"><label>Email Address</label><input type="email" id="email" placeholder="any@demo.com"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="password" placeholder="any password"></div>
+            <div class="form-group"><label>Role Selection</label>
+                <select id="roleSelect">
+                    <option value="">-- Select Your Role --</option>
+                    <option value="fleet_manager">Fleet Manager</option>
+                    <option value="driver">Driver</option>
+                    <option value="safety_officer">Safety Officer</option>
+                    <option value="financial_analyst">Financial Analyst</option>
+                </select>
+            </div>
+            <button class="btn-signin" id="btnSignIn">Sign In</button>
+            <div class="error-msg" id="errorMsg"></div>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        firebase.initializeApp(firebaseConfig);
+        document.getElementById('btnSignIn').addEventListener('click', () => {
+            const role = document.getElementById('roleSelect').value;
+            if (!role) { document.getElementById('errorMsg').textContent = 'Please select a role.'; return; }
+            sessionStorage.setItem('transitops_role', role);
+            window.location.href = 'dashboard.html';
+        });
+    </script>
+</body>
+</html>

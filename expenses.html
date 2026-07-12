@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Fuel & Expenses</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#c9d1d9; --text-h:#e6edf3; --accent:#58a6ff; --sidebar-w:220px; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+        .sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); padding:20px 0; }
+        .sidebar .logo { padding:0 20px 20px; font-weight:700; font-size:18px; color:var(--text-h); border-bottom:1px solid var(--border); margin-bottom:8px; }
+        .nav-item { padding:11px 20px; cursor:pointer; font-size:13px; color:#8b949e; display:flex; align-items:center; gap:10px; border-left:2px solid transparent; text-decoration:none; }
+        .nav-item:hover { color:#e6edf3; background:rgba(255,255,255,0.03); }
+        .nav-item.active { color:#fff; background:rgba(88,166,255,0.1); border-left-color:var(--accent); }
+        .main-area { flex:1; overflow-y:auto; padding:20px; }
+        .summary-box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:16px; }
+        table { width:100%; border-collapse:collapse; font-size:12px; background:var(--surface); }
+        th { text-align:left; padding:9px 12px; background:#1c2333; color:#8b949e; font-size:10px; text-transform:uppercase; }
+        td { padding:9px 12px; border-bottom:1px solid var(--border); }
+        .btn-primary { padding:8px 16px; background:var(--accent); color:#fff; border:none; border-radius:6px; cursor:pointer; margin-bottom:12px; }
+        .btn-logout { padding:6px 14px; border-radius:16px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:1000; }
+        .modal-overlay.show { display:flex; }
+        .modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; width:420px; }
+        .form-group { margin-bottom:10px; }
+        label { font-size:11px; color:#8b949e; display:block; }
+        input, select { width:100%; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
+        .btn-row { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+        .btn-cancel { padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .btn-save { padding:7px 14px; border-radius:6px; border:none; background:var(--accent); color:#fff; cursor:pointer; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main-area">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>⛽ Fuel & Expense Management</h2>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="summary-box" id="costSummary"></div>
+        <h3>⛽ Fuel Logs</h3><button class="btn-primary" onclick="openFuelModal()">+ Log Fuel</button>
+        <table><thead><tr><th>Vehicle</th><th>Date</th><th>Liters</th><th>Cost ($)</th></tr></thead><tbody id="fuelBody"></tbody></table>
+        <h3 style="margin-top:24px;">💸 Other Expenses</h3><button class="btn-primary" onclick="openExpenseModal()">+ Log Expense</button>
+        <table><thead><tr><th>Vehicle</th><th>Date</th><th>Category</th><th>Amount ($)</th><th>Notes</th></tr></thead><tbody id="expenseBody"></tbody></table>
+    </div>
+    <div class="modal-overlay" id="fuelModal">
+        <div class="modal"><h3>Log Fuel</h3>
+            <div class="form-group"><label>Vehicle</label><select id="fVehicle"></select></div>
+            <div class="form-group"><label>Date</label><input type="date" id="fDate"></div>
+            <div class="form-group"><label>Liters</label><input type="number" id="fLiters" step="0.1"></div>
+            <div class="form-group"><label>Cost ($)</label><input type="number" id="fCost" step="0.01"></div>
+            <div class="btn-row"><button class="btn-cancel" onclick="document.getElementById('fuelModal').classList.remove('show')">Cancel</button><button class="btn-save" onclick="saveFuel()">Save</button></div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="expenseModal">
+        <div class="modal"><h3>Log Expense</h3>
+            <div class="form-group"><label>Vehicle</label><select id="eVehicle"></select></div>
+            <div class="form-group"><label>Date</label><input type="date" id="eDate"></div>
+            <div class="form-group"><label>Category</label><select id="eCategory"><option>Road Toll</option><option>Driver Allowance</option><option>Roadside Assistance</option><option>Other</option></select></div>
+            <div class="form-group"><label>Amount ($)</label><input type="number" id="eAmount" step="0.01"></div>
+            <div class="form-group"><label>Notes</label><input type="text" id="eNotes"></div>
+            <div class="btn-row"><button class="btn-cancel" onclick="document.getElementById('expenseModal').classList.remove('show')">Cancel</button><button class="btn-save" onclick="saveExpense()">Save</button></div>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const role = sessionStorage.getItem('transitops_role');
+        if (!role || !['fleet_manager','financial_analyst'].includes(role)) { window.location.href = 'dashboard.html'; }
+
+        const pages = {
+            fleet_manager: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' },
+                { name:'Settings', file:'settings.html', icon:'⚙️' }
+            ],
+            financial_analyst: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' }
+            ]
+        };
+        const allowed = pages[role] || pages.fleet_manager;
+        let sidebarHTML = '<div class="logo">🚛 TransitOps</div>';
+        allowed.forEach(p => {
+            sidebarHTML += `<a class="nav-item${p.file==='expenses.html'?' active':''}" href="${p.file}">${p.icon} ${p.name}</a>`;
+        });
+        document.getElementById('sidebar').innerHTML = sidebarHTML;
+
+        let vehicleMap = {};
+        async function init() {
+            const vehSnap = await db.collection('vehicles').get();
+            vehicleMap = {}; vehSnap.docs.forEach(d => vehicleMap[d.id] = d.data().regNumber || d.data().name || d.id.slice(-6));
+            const opts = vehSnap.docs.map(d => `<option value="${d.id}">${vehicleMap[d.id]}</option>`).join('');
+            document.getElementById('fVehicle').innerHTML = opts; document.getElementById('eVehicle').innerHTML = opts;
+            await loadFuel(); await loadExpenses(); await computeSummary();
+        }
+        async function loadFuel() {
+            const snap = await db.collection('fuelLogs').orderBy('date','desc').limit(50).get();
+            document.getElementById('fuelBody').innerHTML = snap.docs.map(d => {
+                const l = d.data();
+                return `<tr><td>${vehicleMap[l.vehicleId]||l.vehicleId?.slice(-6)}</td><td>${l.date||'--'}</td><td>${l.liters||0} L</td><td>$${Number(l.cost||0).toFixed(2)}</td></tr>`;
+            }).join('') || '<tr><td colspan="4">No fuel logs.</td></tr>';
+        }
+        async function loadExpenses() {
+            const snap = await db.collection('expenses').orderBy('date','desc').limit(50).get();
+            document.getElementById('expenseBody').innerHTML = snap.docs.map(d => {
+                const l = d.data();
+                return `<tr><td>${vehicleMap[l.vehicleId]||l.vehicleId?.slice(-6)}</td><td>${l.date||'--'}</td><td>${l.category||'--'}</td><td>$${Number(l.amount||0).toFixed(2)}</td><td>${l.notes||''}</td></tr>`;
+            }).join('') || '<tr><td colspan="5">No expenses.</td></tr>';
+        }
+        async function computeSummary() {
+            const [fuelSnap, maintSnap] = await Promise.all([db.collection('fuelLogs').get(), db.collection('maintenance').get()]);
+            const totalFuel = fuelSnap.docs.reduce((s,d) => s+(Number(d.data().cost)||0),0);
+            const totalMaint = maintSnap.docs.reduce((s,d) => s+(Number(d.data().cost)||0),0);
+            document.getElementById('costSummary').innerHTML = `<strong>Total Operational Cost:</strong> $${(totalFuel+totalMaint).toLocaleString()} (Fuel: $${totalFuel.toLocaleString()} + Maint: $${totalMaint.toLocaleString()})`;
+        }
+        function openFuelModal() { document.getElementById('fuelModal').classList.add('show'); document.getElementById('fDate').value = new Date().toISOString().split('T')[0]; }
+        function openExpenseModal() { document.getElementById('expenseModal').classList.add('show'); document.getElementById('eDate').value = new Date().toISOString().split('T')[0]; }
+        async function saveFuel() {
+            const vehId=document.getElementById('fVehicle').value, date=document.getElementById('fDate').value, liters=Number(document.getElementById('fLiters').value), cost=Number(document.getElementById('fCost').value);
+            if (!vehId||!date||!liters) return alert('Fill all fields.');
+            await db.collection('fuelLogs').add({ vehicleId:vehId, date, liters, cost, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+            document.getElementById('fuelModal').classList.remove('show'); init();
+        }
+        async function saveExpense() {
+            const vehId=document.getElementById('eVehicle').value, date=document.getElementById('eDate').value, cat=document.getElementById('eCategory').value, amount=Number(document.getElementById('eAmount').value), notes=document.getElementById('eNotes').value;
+            if (!vehId||!date||!amount) return alert('Fill all fields.');
+            await db.collection('expenses').add({ vehicleId:vehId, date, category:cat, amount, notes, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+            document.getElementById('expenseModal').classList.remove('show'); init();
+        }
+        function logout() { sessionStorage.clear(); window.location.href = 'index.html'; }
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Vehicles</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+    <style>
+        :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#c9d1d9; --text-h:#e6edf3; --accent:#58a6ff; --green:#3fb950; --amber:#d2991d; --red:#f85149; --sidebar-w:220px; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+        .sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); padding:20px 0; flex-shrink:0; }
+        .sidebar .logo { padding:0 20px 20px; font-weight:700; font-size:18px; color:var(--text-h); border-bottom:1px solid var(--border); margin-bottom:8px; }
+        .nav-item { padding:11px 20px; cursor:pointer; font-size:13px; color:#8b949e; display:flex; align-items:center; gap:10px; border-left:2px solid transparent; text-decoration:none; }
+        .nav-item:hover { color:#e6edf3; background:rgba(255,255,255,0.03); }
+        .nav-item.active { color:#fff; background:rgba(88,166,255,0.1); border-left-color:var(--accent); }
+        .main-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+        .header { padding:16px 20px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+        .header h2 { font-size:18px; color:var(--text-h); margin-right:auto; }
+        .header input { padding:8px 14px; border-radius:20px; border:1px solid var(--border); background:var(--bg); color:var(--text); width:240px; }
+        .btn-primary { padding:9px 20px; background:var(--accent); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; }
+        .btn-logout { padding:6px 14px; border-radius:16px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .content-scroll { flex:1; overflow-y:auto; padding:16px 20px; }
+        table { width:100%; border-collapse:collapse; font-size:12px; background:var(--surface); border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+        th { text-align:left; padding:10px 12px; background:#1c2333; color:#8b949e; font-size:10px; text-transform:uppercase; cursor:pointer; }
+        td { padding:10px 12px; border-bottom:1px solid var(--border); }
+        .badge { padding:4px 10px; border-radius:12px; font-size:10px; font-weight:600; }
+        .badge-available { background:rgba(63,185,80,0.2); color:#3fb950; }
+        .badge-on-trip { background:rgba(57,210,192,0.2); color:#39d2c0; }
+        .badge-in-shop { background:rgba(210,153,29,0.2); color:#d2991d; }
+        .badge-retired { background:rgba(248,81,73,0.2); color:#f85149; }
+        .btn-icon { background:none; border:1px solid var(--border); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:13px; color:#8b949e; margin:0 2px; }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:1000; }
+        .modal-overlay.show { display:flex; }
+        .modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; width:500px; max-width:90vw; }
+        .modal h3 { color:var(--text-h); margin-bottom:16px; }
+        .form-group { margin-bottom:12px; }
+        label { display:block; font-size:11px; color:#8b949e; margin-bottom:4px; text-transform:uppercase; }
+        input, select { width:100%; padding:9px 12px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px; }
+        .btn-row { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+        .btn-cancel { padding:8px 16px; border-radius:6px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .btn-save { padding:8px 16px; border-radius:6px; border:none; background:var(--accent); color:#fff; cursor:pointer; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main-area">
+        <div class="header">
+            <h2>🚛 Vehicle Master Registry</h2>
+            <input type="text" id="searchInput" placeholder="🔍 Search name or model...">
+            <button class="btn-primary" onclick="openAddModal()">+ Add Vehicle</button>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="content-scroll">
+            <table>
+                <thead><tr>
+                    <th data-sort="regNumber">Reg # ↕</th>
+                    <th data-sort="name">Name/Model ↕</th>
+                    <th data-sort="type">Type</th>
+                    <th data-sort="maxCapacity">Max Cap (kg) ↕</th>
+                    <th data-sort="odometer">Odo (km) ↕</th>
+                    <th data-sort="acquisitionCost">Acq Cost ↕</th>
+                    <th>Docs</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr></thead>
+                <tbody id="vehicleBody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="modal-overlay" id="vehicleModal">
+        <div class="modal">
+            <h3 id="modalTitle">Add Vehicle</h3>
+            <div class="form-group"><label>Registration Number *</label><input type="text" id="vRegNumber"></div>
+            <div class="form-group"><label>Vehicle Name/Model *</label><input type="text" id="vName"></div>
+            <div class="form-group"><label>Type</label><select id="vType"><option>Heavy Truck</option><option>Cargo Van</option><option>Pickup</option><option>Trailer</option></select></div>
+            <div class="form-group"><label>Max Load Capacity (kg)</label><input type="number" id="vMaxCapacity"></div>
+            <div class="form-group"><label>Odometer Reading (km)</label><input type="number" id="vOdometer"></div>
+            <div class="form-group"><label>Acquisition Cost ($)</label><input type="number" id="vAcquisitionCost"></div>
+            <div class="form-group"><label>Status</label><select id="vStatus"><option>Available</option><option>On Trip</option><option>In Shop</option><option>Retired</option></select></div>
+            <div class="btn-row"><button class="btn-cancel" onclick="closeVehicleModal()">Cancel</button><button class="btn-save" onclick="saveVehicle()">Save</button></div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="docModal">
+        <div class="modal">
+            <h3>📄 Document Vault</h3>
+            <p style="font-size:12px;color:#8b949e;">Vehicle: <strong id="docVehicleLabel"></strong></p>
+            <div class="form-group"><label>Upload Document</label><input type="file" id="docFileInput"></div>
+            <div class="doc-vault" id="docList"></div>
+            <div class="btn-row"><button class="btn-cancel" onclick="document.getElementById('docModal').classList.remove('show')">Close</button><button class="btn-save" onclick="uploadDocument()">Upload</button></div>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        const role = sessionStorage.getItem('transitops_role');
+        if (!role || !['fleet_manager','driver'].includes(role)) { window.location.href = 'dashboard.html'; }
+
+        const pages = {
+            fleet_manager: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' },
+                { name:'Settings', file:'settings.html', icon:'⚙️' }
+            ],
+            driver: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' }
+            ]
+        };
+        const allowed = pages[role] || pages.fleet_manager;
+        let sidebarHTML = '<div class="logo">🚛 TransitOps</div>';
+        allowed.forEach(p => {
+            sidebarHTML += `<a class="nav-item${p.file==='vehicles.html'?' active':''}" href="${p.file}">${p.icon} ${p.name}</a>`;
+        });
+        document.getElementById('sidebar').innerHTML = sidebarHTML;
+
+        let allVehicles = [], editingId = null, currentDocVehicleId = null, sortField='regNumber', sortAsc=true;
+
+        async function loadVehicles() {
+            const snap = await db.collection('vehicles').get();
+            allVehicles = snap.docs.map(d => ({id: d.id, ...d.data()}));
+            renderTable();
+        }
+        function renderTable(filter='') {
+            let filtered = allVehicles.filter(v => (v.name||'').toLowerCase().includes(filter.toLowerCase()) || (v.regNumber||'').toLowerCase().includes(filter.toLowerCase()));
+            filtered.sort((a,b) => {
+                let valA = a[sortField] ?? '', valB = b[sortField] ?? '';
+                if (typeof valA === 'number') return sortAsc ? valA - valB : valB - valA;
+                return sortAsc ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+            });
+            document.getElementById('vehicleBody').innerHTML = filtered.map(v => `
+                <tr>
+                    <td><strong>${v.regNumber||'N/A'}</strong></td>
+                    <td>${v.name||''} ${v.model||''}</td>
+                    <td>${v.type||'--'}</td>
+                    <td>${Number(v.maxCapacity||0).toLocaleString()} kg</td>
+                    <td>${Number(v.odometer||0).toLocaleString()} km</td>
+                    <td>$${Number(v.acquisitionCost||0).toLocaleString()}</td>
+                    <td><button class="btn-icon" onclick="openDocVault('${v.id}','${v.regNumber||v.name}')">📎</button></td>
+                    <td><span class="badge badge-${(v.status||'available').toLowerCase().replace(/\s+/g,'-')}">${v.status||'Available'}</span></td>
+                    <td>
+                        <button class="btn-icon" onclick="editVehicle('${v.id}')">✏️</button>
+                        <button class="btn-icon" onclick="deleteVehicle('${v.id}')" style="color:#f85149;">🗑️</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="9">No vehicles found.</td></tr>';
+        }
+        document.getElementById('searchInput').addEventListener('input', e => renderTable(e.target.value));
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                if (sortField === th.dataset.sort) sortAsc = !sortAsc;
+                else { sortField = th.dataset.sort; sortAsc = true; }
+                renderTable(document.getElementById('searchInput').value);
+            });
+        });
+        function openAddModal() {
+            editingId = null; document.getElementById('modalTitle').textContent = 'Add Vehicle';
+            ['vRegNumber','vName','vMaxCapacity','vOdometer','vAcquisitionCost'].forEach(id => document.getElementById(id).value='');
+            document.getElementById('vType').value='Heavy Truck'; document.getElementById('vStatus').value='Available';
+            document.getElementById('vehicleModal').classList.add('show');
+        }
+        function editVehicle(id) {
+            const v = allVehicles.find(x => x.id === id); if (!v) return;
+            editingId = id; document.getElementById('modalTitle').textContent = 'Edit Vehicle';
+            document.getElementById('vRegNumber').value = v.regNumber || '';
+            document.getElementById('vName').value = v.name || '';
+            document.getElementById('vType').value = v.type || 'Heavy Truck';
+            document.getElementById('vMaxCapacity').value = v.maxCapacity || '';
+            document.getElementById('vOdometer').value = v.odometer || '';
+            document.getElementById('vAcquisitionCost').value = v.acquisitionCost || '';
+            document.getElementById('vStatus').value = v.status || 'Available';
+            document.getElementById('vehicleModal').classList.add('show');
+        }
+        function closeVehicleModal() { document.getElementById('vehicleModal').classList.remove('show'); editingId = null; }
+        async function saveVehicle() {
+            const reg = document.getElementById('vRegNumber').value.trim();
+            const name = document.getElementById('vName').value.trim();
+            if (!reg || !name) { alert('Registration Number and Name required!'); return; }
+            const isDuplicate = allVehicles.some(v => v.regNumber === reg && v.id !== editingId);
+            if (isDuplicate) { alert('Registration Number must be unique!'); return; }
+            const data = {
+                regNumber: reg, name, model: name,
+                type: document.getElementById('vType').value,
+                maxCapacity: Number(document.getElementById('vMaxCapacity').value) || 0,
+                odometer: Number(document.getElementById('vOdometer').value) || 0,
+                acquisitionCost: Number(document.getElementById('vAcquisitionCost').value) || 0,
+                status: document.getElementById('vStatus').value,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            try {
+                if (editingId) await db.collection('vehicles').doc(editingId).update(data);
+                else { data.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('vehicles').add(data); }
+                closeVehicleModal(); loadVehicles();
+            } catch(e) { alert('Error: '+e.message); }
+        }
+        async function deleteVehicle(id) { if(confirm('Delete?')) { await db.collection('vehicles').doc(id).delete(); loadVehicles(); } }
+        function openDocVault(vehicleId, label) {
+            currentDocVehicleId = vehicleId;
+            document.getElementById('docVehicleLabel').textContent = label;
+            document.getElementById('docModal').classList.add('show');
+            loadDocuments();
+        }
+        async function loadDocuments() {
+            const snap = await db.collection('vehicles').doc(currentDocVehicleId).collection('documents').get();
+            const docs = snap.docs.map(d => ({id: d.id, ...d.data()}));
+            document.getElementById('docList').innerHTML = docs.map(d => `<a href="${d.url}" target="_blank">📄 ${d.name}</a> <button class="btn-icon" onclick="deleteDoc('${d.id}')" style="font-size:10px;">🗑️</button><br>`).join('') || 'No documents.';
+        }
+        async function uploadDocument() {
+            const file = document.getElementById('docFileInput').files[0];
+            if (!file || !currentDocVehicleId) return;
+            const ref = storage.ref(`vehicle-docs/${currentDocVehicleId}/${Date.now()}_${file.name}`);
+            await ref.put(file);
+            const url = await ref.getDownloadURL();
+            await db.collection('vehicles').doc(currentDocVehicleId).collection('documents').add({ name: file.name, url, uploadedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            document.getElementById('docFileInput').value = '';
+            loadDocuments();
+        }
+        async function deleteDoc(docId) {
+            await db.collection('vehicles').doc(currentDocVehicleId).collection('documents').doc(docId).delete();
+            loadDocuments();
+        }
+        function logout() { sessionStorage.clear(); window.location.href = 'index.html'; }
+        loadVehicles();
+    </script>
+</body>
+</html>

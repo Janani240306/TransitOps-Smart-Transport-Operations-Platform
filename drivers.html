@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Drivers</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#c9d1d9; --text-h:#e6edf3; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --sidebar-w:220px; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+        .sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); padding:20px 0; }
+        .sidebar .logo { padding:0 20px 20px; font-weight:700; font-size:18px; color:var(--text-h); border-bottom:1px solid var(--border); margin-bottom:8px; }
+        .nav-item { padding:11px 20px; cursor:pointer; font-size:13px; color:#8b949e; display:flex; align-items:center; gap:10px; border-left:2px solid transparent; text-decoration:none; }
+        .nav-item:hover { color:#e6edf3; background:rgba(255,255,255,0.03); }
+        .nav-item.active { color:#fff; background:rgba(88,166,255,0.1); border-left-color:var(--accent); }
+        .main-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+        .header { padding:16px 20px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+        .header h2 { font-size:18px; color:var(--text-h); margin-right:auto; }
+        .btn-primary { padding:9px 20px; background:var(--accent); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; }
+        .btn-logout { padding:6px 14px; border-radius:16px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; font-size:11px; }
+        .content-scroll { flex:1; overflow-y:auto; padding:16px 20px; }
+        .alert-banner { background:rgba(248,81,73,0.1); border:1px solid rgba(248,81,73,0.3); border-radius:8px; padding:10px; margin-bottom:14px; color:#f85149; display:none; }
+        .alert-banner.show { display:block; }
+        table { width:100%; border-collapse:collapse; font-size:12px; background:var(--surface); border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+        th { text-align:left; padding:10px 12px; background:#1c2333; color:#8b949e; font-size:10px; text-transform:uppercase; }
+        td { padding:10px 12px; border-bottom:1px solid var(--border); }
+        .badge { padding:4px 10px; border-radius:12px; font-size:10px; font-weight:600; }
+        .badge-available { background:rgba(63,185,80,0.2); color:#3fb950; }
+        .badge-on-trip { background:rgba(57,210,192,0.2); color:#39d2c0; }
+        .badge-off-duty { background:rgba(139,148,158,0.2); color:#8b949e; }
+        .badge-suspended { background:rgba(248,81,73,0.2); color:#f85149; }
+        .expiry-warning { color:#f85149; font-weight:600; }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:1000; }
+        .modal-overlay.show { display:flex; }
+        .modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; width:480px; }
+        .modal h3 { color:var(--text-h); }
+        .form-group { margin-bottom:12px; }
+        label { display:block; font-size:11px; color:#8b949e; margin-bottom:4px; text-transform:uppercase; }
+        input, select { width:100%; padding:9px 12px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px; }
+        .btn-row { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+        .btn-cancel { padding:8px 16px; border-radius:6px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .btn-save { padding:8px 16px; border-radius:6px; border:none; background:var(--accent); color:#fff; cursor:pointer; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main-area">
+        <div class="header">
+            <h2>👤 Driver Profiles & Compliance</h2>
+            <button class="btn-primary" onclick="openAddModal()">+ Add Driver</button>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="content-scroll">
+            <div class="alert-banner" id="expiryAlert"></div>
+            <table><thead><tr><th>Name</th><th>License No</th><th>Category</th><th>Expiry</th><th>Contact</th><th>Safety Score</th><th>Status</th><th>Actions</th></tr></thead><tbody id="driverBody"></tbody></table>
+        </div>
+    </div>
+    <div class="modal-overlay" id="driverModal">
+        <div class="modal">
+            <h3 id="modalTitle">Add Driver</h3>
+            <div class="form-group"><label>Driver Name *</label><input type="text" id="dName"></div>
+            <div class="form-group"><label>License Number *</label><input type="text" id="dLicense"></div>
+            <div class="form-group"><label>License Category</label><select id="dCategory"><option>Heavy Transport Vehicle</option><option>Light Motor Vehicle</option><option>Medium Goods Vehicle</option></select></div>
+            <div class="form-group"><label>License Expiry Date *</label><input type="date" id="dExpiry"></div>
+            <div class="form-group"><label>Contact Number</label><input type="tel" id="dContact"></div>
+            <div class="form-group"><label>Safety Score (0-100)</label><input type="number" id="dScore" min="0" max="100" value="85"></div>
+            <div class="form-group"><label>Status</label><select id="dStatus"><option>Available</option><option>On Trip</option><option>Off Duty</option><option>Suspended</option></select></div>
+            <div class="btn-row"><button class="btn-cancel" onclick="closeDriverModal()">Cancel</button><button class="btn-save" onclick="saveDriver()">Save</button></div>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const role = sessionStorage.getItem('transitops_role');
+        if (!role || !['fleet_manager','driver','safety_officer'].includes(role)) { window.location.href = 'dashboard.html'; }
+
+        const pages = {
+            fleet_manager: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' },
+                { name:'Settings', file:'settings.html', icon:'⚙️' }
+            ],
+            driver: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' }
+            ],
+            safety_officer: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' }
+            ]
+        };
+        const allowed = pages[role] || pages.fleet_manager;
+        let sidebarHTML = '<div class="logo">🚛 TransitOps</div>';
+        allowed.forEach(p => {
+            sidebarHTML += `<a class="nav-item${p.file==='drivers.html'?' active':''}" href="${p.file}">${p.icon} ${p.name}</a>`;
+        });
+        document.getElementById('sidebar').innerHTML = sidebarHTML;
+
+        let allDrivers = [], editingId = null;
+        async function loadDrivers() {
+            const snap = await db.collection('drivers').get();
+            allDrivers = snap.docs.map(d => ({id: d.id, ...d.data()}));
+            renderTable(); checkExpiryAlerts();
+        }
+        function renderTable() {
+            const now = new Date(), thirtyDays = new Date(now.getTime() + 30*24*60*60*1000);
+            document.getElementById('driverBody').innerHTML = allDrivers.map(d => {
+                const expiry = d.licenseExpiry ? new Date(d.licenseExpiry) : null;
+                const isExpiringSoon = expiry && expiry <= thirtyDays && expiry >= now;
+                const isExpired = expiry && expiry < now;
+                return `<tr>
+                    <td><strong>${d.name||'--'}</strong></td>
+                    <td>${d.licenseNumber||'--'}</td>
+                    <td>${d.licenseCategory||'--'}</td>
+                    <td class="${isExpiringSoon||isExpired?'expiry-warning':''}">${expiry?expiry.toLocaleDateString():'--'}${isExpired?' ⚠ EXPIRED':isExpiringSoon?' ⚠ SOON':''}</td>
+                    <td>${d.contact||'--'}</td>
+                    <td>${d.safetyScore??'--'}/100</td>
+                    <td><span class="badge badge-${(d.status||'available').toLowerCase().replace(/\s+/g,'-')}">${d.status||'Available'}</span></td>
+                    <td>
+                        <button class="btn-cancel" style="padding:4px 10px;font-size:11px;" onclick="editDriver('${d.id}')">✏️</button>
+                        <button class="btn-cancel" style="padding:4px 10px;font-size:11px;color:#f85149;" onclick="deleteDriver('${d.id}')">🗑️</button>
+                    </td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="8">No drivers found.</td></tr>';
+        }
+        function checkExpiryAlerts() {
+            const now = new Date(), thirtyDays = new Date(now.getTime() + 30*24*60*60*1000);
+            const expiring = allDrivers.filter(d => {
+                const expiry = d.licenseExpiry ? new Date(d.licenseExpiry) : null;
+                return expiry && expiry <= thirtyDays && expiry >= now;
+            });
+            const banner = document.getElementById('expiryAlert');
+            if (expiring.length) {
+                banner.classList.add('show');
+                banner.textContent = `⚠ ${expiring.length} driver(s) licence expiring within 30 days! (${expiring.map(d=>d.name).join(', ')})`;
+            } else banner.classList.remove('show');
+        }
+        function openAddModal() {
+            editingId = null; document.getElementById('modalTitle').textContent = 'Add Driver';
+            ['dName','dLicense','dExpiry','dContact','dScore'].forEach(id => document.getElementById(id).value='');
+            document.getElementById('dCategory').value='Heavy Transport Vehicle'; document.getElementById('dStatus').value='Available'; document.getElementById('dScore').value='85';
+            document.getElementById('driverModal').classList.add('show');
+        }
+        function editDriver(id) {
+            const d = allDrivers.find(x => x.id === id); if (!d) return;
+            editingId = id; document.getElementById('modalTitle').textContent = 'Edit Driver';
+            document.getElementById('dName').value = d.name||'';
+            document.getElementById('dLicense').value = d.licenseNumber||'';
+            document.getElementById('dCategory').value = d.licenseCategory||'Heavy Transport Vehicle';
+            document.getElementById('dExpiry').value = d.licenseExpiry||'';
+            document.getElementById('dContact').value = d.contact||'';
+            document.getElementById('dScore').value = d.safetyScore??85;
+            document.getElementById('dStatus').value = d.status||'Available';
+            document.getElementById('driverModal').classList.add('show');
+        }
+        function closeDriverModal() { document.getElementById('driverModal').classList.remove('show'); editingId = null; }
+        async function saveDriver() {
+            const name = document.getElementById('dName').value.trim(), license = document.getElementById('dLicense').value.trim(), expiry = document.getElementById('dExpiry').value;
+            if (!name || !license || !expiry) { alert('Name, License Number, and Expiry are required!'); return; }
+            const data = {
+                name, licenseNumber: license, licenseCategory: document.getElementById('dCategory').value,
+                licenseExpiry: expiry, contact: document.getElementById('dContact').value.trim(),
+                safetyScore: Number(document.getElementById('dScore').value) || 85,
+                status: document.getElementById('dStatus').value,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            if (editingId) await db.collection('drivers').doc(editingId).update(data);
+            else { data.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('drivers').add(data); }
+            closeDriverModal(); loadDrivers();
+        }
+        async function deleteDriver(id) { if (confirm('Delete?')) { await db.collection('drivers').doc(id).delete(); loadDrivers(); } }
+        function logout() { sessionStorage.clear(); window.location.href = 'index.html'; }
+        loadDrivers();
+        setInterval(() => { if (allDrivers.length) checkExpiryAlerts(); }, 60000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Settings</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#c9d1d9; --text-h:#e6edf3; --accent:#58a6ff; --sidebar-w:220px; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+        .sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); padding:20px 0; }
+        .sidebar .logo { padding:0 20px 20px; font-weight:700; font-size:18px; color:var(--text-h); border-bottom:1px solid var(--border); margin-bottom:8px; }
+        .nav-item { padding:11px 20px; cursor:pointer; font-size:13px; color:#8b949e; display:flex; align-items:center; gap:10px; border-left:2px solid transparent; text-decoration:none; }
+        .nav-item:hover { color:#e6edf3; background:rgba(255,255,255,0.03); }
+        .nav-item.active { color:#fff; background:rgba(88,166,255,0.1); border-left-color:var(--accent); }
+        .main-area { flex:1; display:flex; overflow:hidden; }
+        .left-col { width:40%; padding:20px; border-right:1px solid var(--border); overflow-y:auto; }
+        .right-col { width:60%; padding:20px; background:var(--surface); overflow-y:auto; }
+        h3 { color:var(--text-h); }
+        .form-group { margin-bottom:12px; }
+        label { display:block; font-size:11px; color:#8b949e; margin-bottom:4px; }
+        input, select { width:100%; padding:9px 12px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
+        .btn-save { padding:9px 18px; background:var(--accent); color:#fff; border:none; border-radius:6px; cursor:pointer; }
+        .btn-logout { padding:6px 14px; border-radius:16px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; margin-top:10px; width:100%; }
+        table { width:100%; border-collapse:collapse; font-size:11px; }
+        th, td { border:1px solid var(--border); padding:8px; text-align:center; }
+        td:first-child { text-align:left; }
+        input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
+    </style>
+</head>
+<body>
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main-area">
+        <div class="left-col">
+            <h3>⚙️ General Settings</h3>
+            <div class="form-group"><label>Company Name</label><input type="text" id="sCompany"></div>
+            <div class="form-group"><label>Currency</label><select id="sCurrency"><option>USD</option><option>EUR</option></select></div>
+            <div class="form-group"><label>Fuel Price per Liter ($)</label><input type="number" id="sFuelPrice" step="0.01"></div>
+            <div class="form-group"><label>Dark Mode</label><select id="sDarkMode"><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></div>
+            <div class="form-group"><label>License Alert Days</label><input type="number" id="sAlertDays" value="30"></div>
+            <button class="btn-save" onclick="saveSettings()">💾 Save</button>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="right-col">
+            <h3>🔐 RBAC Permissions</h3>
+            <table id="rbacTable">
+                <thead><tr><th>Role / Section</th><th>Vehicles</th><th>Drivers</th><th>Trips</th><th>Finances</th></tr></thead>
+                <tbody id="rbacBody"></tbody>
+            </table>
+            <button class="btn-save" style="margin-top:12px;" onclick="saveRBAC()">💾 Save RBAC</button>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const role = sessionStorage.getItem('transitops_role');
+        if (role !== 'fleet_manager') { window.location.href = 'dashboard.html'; }
+
+        const pages = {
+            fleet_manager: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' },
+                { name:'Settings', file:'settings.html', icon:'⚙️' }
+            ]
+        };
+        const allowed = pages[role] || pages.fleet_manager;
+        let sidebarHTML = '<div class="logo">🚛 TransitOps</div>';
+        allowed.forEach(p => {
+            sidebarHTML += `<a class="nav-item${p.file==='settings.html'?' active':''}" href="${p.file}">${p.icon} ${p.name}</a>`;
+        });
+        document.getElementById('sidebar').innerHTML = sidebarHTML;
+
+        const roles = ['fleet_manager','driver','safety_officer','financial_analyst'];
+        const sections = ['vehicles','drivers','trips','finances'];
+        const perms = ['create','read','update','delete'];
+        let rbacData = {};
+
+        async function init() {
+            const [setDoc, rbacDoc] = await Promise.all([db.collection('settings').doc('global').get(), db.collection('settings').doc('rbac').get()]);
+            if (setDoc.exists) {
+                const s = setDoc.data();
+                document.getElementById('sCompany').value = s.companyName||'';
+                document.getElementById('sCurrency').value = s.currency||'USD';
+                document.getElementById('sFuelPrice').value = s.fuelPrice||'';
+                document.getElementById('sDarkMode').value = s.darkMode||'enabled';
+                document.getElementById('sAlertDays').value = s.alertDays||30;
+            }
+            if (rbacDoc.exists) { rbacData = rbacDoc.data(); } else {
+                roles.forEach(r => { rbacData[r] = {}; sections.forEach(s => { rbacData[r][s] = {create:true,read:true,update:true,delete:r==='fleet_manager'}; }); });
+            }
+            renderRBAC();
+        }
+        function renderRBAC() {
+            document.getElementById('rbacBody').innerHTML = roles.map(r => `
+                <tr><td>${r.replace(/_/g,' ')}</td>
+                ${sections.map(s => `<td>${perms.map(p => `<label style="margin:0 3px;font-size:9px;"><input type="checkbox" data-role="${r}" data-section="${s}" data-perm="${p}" ${(rbacData[r]&&rbacData[r][s]&&rbacData[r][s][p])?'checked':''}> ${p[0].toUpperCase()}</label>`).join('')}</td>`).join('')}
+                </tr>`).join('');
+        }
+        async function saveSettings() {
+            await db.collection('settings').doc('global').set({
+                companyName: document.getElementById('sCompany').value.trim(),
+                currency: document.getElementById('sCurrency').value,
+                fuelPrice: Number(document.getElementById('sFuelPrice').value)||0,
+                darkMode: document.getElementById('sDarkMode').value,
+                alertDays: Number(document.getElementById('sAlertDays').value)||30
+            }, {merge:true});
+            alert('Settings saved!');
+        }
+        async function saveRBAC() {
+            document.querySelectorAll('#rbacBody input[type=checkbox]').forEach(cb => {
+                const role=cb.dataset.role, sec=cb.dataset.section, perm=cb.dataset.perm;
+                if (!rbacData[role]) rbacData[role]={};
+                if (!rbacData[role][sec]) rbacData[role][sec]={};
+                rbacData[role][sec][perm] = cb.checked;
+            });
+            await db.collection('settings').doc('rbac').set(rbacData, {merge:true});
+            alert('RBAC saved!');
+        }
+        function logout() { sessionStorage.clear(); window.location.href = 'index.html'; }
+        init();
+    </script>
+</body>
+</html>

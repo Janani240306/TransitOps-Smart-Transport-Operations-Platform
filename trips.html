@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitOps – Trip Dispatcher</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#c9d1d9; --text-h:#e6edf3; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --sidebar-w:220px; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+        .sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); padding:20px 0; }
+        .sidebar .logo { padding:0 20px 20px; font-weight:700; font-size:18px; color:var(--text-h); border-bottom:1px solid var(--border); margin-bottom:8px; }
+        .nav-item { padding:11px 20px; cursor:pointer; font-size:13px; color:#8b949e; display:flex; align-items:center; gap:10px; border-left:2px solid transparent; text-decoration:none; }
+        .nav-item:hover { color:#e6edf3; background:rgba(255,255,255,0.03); }
+        .nav-item.active { color:#fff; background:rgba(88,166,255,0.1); border-left-color:var(--accent); }
+        .main-area { flex:1; display:flex; overflow:hidden; }
+        .left-col { width:45%; padding:20px; overflow-y:auto; border-right:1px solid var(--border); }
+        .right-col { width:55%; padding:20px; overflow-y:auto; background:var(--surface); }
+        h3 { color:var(--text-h); margin-bottom:14px; }
+        .form-group { margin-bottom:12px; }
+        label { display:block; font-size:11px; color:#8b949e; margin-bottom:4px; text-transform:uppercase; }
+        input, select { width:100%; padding:9px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:13px; }
+        .error-box { background:rgba(248,81,73,0.1); border:1px solid rgba(248,81,73,0.4); border-radius:8px; padding:10px; color:#f85149; font-size:12px; margin-top:8px; display:none; }
+        .error-box.show { display:block; }
+        .btn-dispatch { width:100%; padding:11px; background:var(--accent); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; margin-top:8px; }
+        .btn-draft { width:100%; padding:11px; background:#30363d; color:#8b949e; border:1px solid var(--border); border-radius:8px; cursor:pointer; font-weight:600; margin-top:8px; }
+        .btn-logout { margin-top:10px; width:100%; padding:8px; border-radius:16px; border:1px solid var(--border); background:transparent; color:#8b949e; cursor:pointer; }
+        .trip-card { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:10px; }
+        .badge { padding:3px 10px; border-radius:12px; font-size:10px; }
+        .badge-draft { background:#30363d; color:#8b949e; }
+        .badge-dispatched { background:rgba(88,166,255,0.2); color:#58a6ff; }
+        .badge-completed { background:rgba(63,185,80,0.2); color:#3fb950; }
+        .badge-cancelled { background:rgba(248,81,73,0.2); color:#f85149; }
+        .btn-sm { padding:4px 10px; border-radius:4px; border:1px solid var(--border); background:transparent; cursor:pointer; font-size:10px; color:#8b949e; }
+        .btn-sm:hover { border-color:var(--accent); }
+    </style>
+</head>
+<body>
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main-area">
+        <div class="left-col">
+            <h3>📋 Trip Intake & Validation</h3>
+            <div class="form-group"><label>Source Hub</label><input type="text" id="tSource" placeholder="e.g., Mumbai"></div>
+            <div class="form-group"><label>Destination Hub</label><input type="text" id="tDestination" placeholder="e.g., Delhi"></div>
+            <div class="form-group"><label>Planned Distance (km)</label><input type="number" id="tDistance" placeholder="e.g., 1400"></div>
+            <div class="form-group"><label>Cargo Weight (kg)</label><input type="number" id="tCargoWeight" placeholder="e.g., 15000"></div>
+            <div class="form-group"><label>Select Vehicle</label><select id="tVehicle"><option value="">-- Choose Vehicle --</option></select></div>
+            <div class="form-group"><label>Select Driver</label><select id="tDriver"><option value="">-- Choose Driver --</option></select></div>
+            <div class="error-box" id="errorBox"></div>
+            <button class="btn-dispatch" onclick="dispatchTrip()">🚀 Dispatch Trip</button>
+            <button class="btn-draft" onclick="saveDraft()">💾 Save as Draft</button>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+        <div class="right-col">
+            <h3>📡 Live Deployment Tracker</h3>
+            <div id="activeTripsList"></div>
+        </div>
+    </div>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyARvELVK_3xQWX_5FBy-9DboIjnTrPgL8c",
+            authDomain: "transitops-6bcef.firebaseapp.com",
+            projectId: "transitops-6bcef",
+            storageBucket: "transitops-6bcef.firebasestorage.app",
+            messagingSenderId: "258315580645",
+            appId: "1:258315580645:web:ec7822ce147bf6f104900c"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const role = sessionStorage.getItem('transitops_role');
+        if (!role || !['fleet_manager','driver'].includes(role)) { window.location.href = 'dashboard.html'; }
+
+        const pages = {
+            fleet_manager: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' },
+                { name:'Maintenance', file:'maintenance.html', icon:'🔧' },
+                { name:'Fuel & Expenses', file:'expenses.html', icon:'⛽' },
+                { name:'Reports', file:'reports.html', icon:'📋' },
+                { name:'Settings', file:'settings.html', icon:'⚙️' }
+            ],
+            driver: [
+                { name:'Dashboard', file:'dashboard.html', icon:'📊' },
+                { name:'Vehicles', file:'vehicles.html', icon:'🚛' },
+                { name:'Drivers', file:'drivers.html', icon:'👤' },
+                { name:'Trip Dispatcher', file:'trips.html', icon:'🗺️' }
+            ]
+        };
+        const allowed = pages[role] || pages.fleet_manager;
+        let sidebarHTML = '<div class="logo">🚛 TransitOps</div>';
+        allowed.forEach(p => {
+            sidebarHTML += `<a class="nav-item${p.file==='trips.html'?' active':''}" href="${p.file}">${p.icon} ${p.name}</a>`;
+        });
+        document.getElementById('sidebar').innerHTML = sidebarHTML;
+
+        let availableVehicles = [], availableDrivers = [], allTrips = [];
+
+        async function init() {
+            const [vehSnap, drvSnap, tripSnap] = await Promise.all([
+                db.collection('vehicles').where('status','==','Available').get(),
+                db.collection('drivers').where('status','==','Available').get(),
+                db.collection('trips').orderBy('createdAt','desc').limit(50).get()
+            ]);
+            availableVehicles = vehSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            availableDrivers = drvSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            allTrips = tripSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            populateDropdowns(); renderActiveTrips();
+        }
+        function populateDropdowns() {
+            document.getElementById('tVehicle').innerHTML = '<option value="">-- Choose Vehicle --</option>' +
+                availableVehicles.map(v => `<option value="${v.id}" data-capacity="${v.maxCapacity||0}">${v.regNumber||v.name} (${v.name}) - Max ${v.maxCapacity||0}kg</option>`).join('');
+            document.getElementById('tDriver').innerHTML = '<option value="">-- Choose Driver --</option>' +
+                availableDrivers.map(d => {
+                    const expired = d.licenseExpiry ? new Date(d.licenseExpiry) < new Date() : false;
+                    return `<option value="${d.id}" data-expired="${expired}">${d.name} (${d.licenseNumber})${expired?' ⚠ EXPIRED':''}</option>`;
+                }).join('');
+        }
+        function dispatchTrip() {
+            const errorBox = document.getElementById('errorBox'); errorBox.classList.remove('show'); errorBox.textContent='';
+            const src = document.getElementById('tSource').value.trim(), dst = document.getElementById('tDestination').value.trim();
+            const dist = Number(document.getElementById('tDistance').value), cargo = Number(document.getElementById('tCargoWeight').value);
+            const vehId = document.getElementById('tVehicle').value, drvId = document.getElementById('tDriver').value;
+            if (!src||!dst||!dist||!cargo||!vehId||!drvId) { errorBox.textContent='⚠ All fields required.'; errorBox.classList.add('show'); return; }
+            const maxCap = Number(document.getElementById('tVehicle').selectedOptions[0]?.dataset?.capacity||0);
+            if (cargo > maxCap && maxCap>0) { errorBox.textContent=`⚠ OVERLOAD: Cargo exceeds max capacity (${maxCap}kg).`; errorBox.classList.add('show'); return; }
+            if (document.getElementById('tDriver').selectedOptions[0]?.dataset?.expired === 'true') { errorBox.textContent='⚠ LICENSE EXPIRED. Cannot dispatch.'; errorBox.classList.add('show'); return; }
+            executeTrip('Dispatched', true);
+        }
+        async function saveDraft() {
+            const src = document.getElementById('tSource').value.trim();
+            const dst = document.getElementById('tDestination').value.trim();
+            const dist = Number(document.getElementById('tDistance').value);
+            const cargo = Number(document.getElementById('tCargoWeight').value);
+            const vehId = document.getElementById('tVehicle').value;
+            const drvId = document.getElementById('tDriver').value;
+            if (!src||!dst||!dist||!cargo||!vehId||!drvId) {
+                alert('Fill all fields to save as draft.');
+                return;
+            }
+            await executeTrip('Draft', false);
+        }
+        async function executeTrip(status, changeResourceStatus) {
+            const tripData = {
+                source: document.getElementById('tSource').value.trim(),
+                destination: document.getElementById('tDestination').value.trim(),
+                plannedDistance: Number(document.getElementById('tDistance').value),
+                cargoWeight: Number(document.getElementById('tCargoWeight').value),
+                vehicleId: document.getElementById('tVehicle').value,
+                driverId: document.getElementById('tDriver').value,
+                vehicleName: document.getElementById('tVehicle').selectedOptions[0]?.textContent,
+                driverName: document.getElementById('tDriver').selectedOptions[0]?.textContent,
+                status: status,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            try {
+                await db.collection('trips').add(tripData);
+                if (changeResourceStatus) {
+                    await db.collection('vehicles').doc(tripData.vehicleId).update({ status: 'On Trip' });
+                    await db.collection('drivers').doc(tripData.driverId).update({ status: 'On Trip' });
+                }
+                // Clear fields
+                document.getElementById('tSource').value = '';
+                document.getElementById('tDestination').value = '';
+                document.getElementById('tDistance').value = '';
+                document.getElementById('tCargoWeight').value = '';
+                document.getElementById('tVehicle').value = '';
+                document.getElementById('tDriver').value = '';
+                init();
+            } catch(e) { alert('Error: '+e.message); }
+        }
+        function renderActiveTrips() {
+            const active = allTrips.filter(t => ['Draft','Dispatched'].includes(t.status));
+            document.getElementById('activeTripsList').innerHTML = active.map(t => `
+                <div class="trip-card">
+                    <strong>#${t.id.slice(-8)}</strong> <span class="badge badge-${(t.status||'draft').toLowerCase()}">${t.status}</span>
+                    <p>📍 ${t.source} → ${t.destination} | ${t.plannedDistance}km | ${t.cargoWeight}kg</p>
+                    <p>🚛 ${t.vehicleName} | 👤 ${t.driverName}</p>
+                    <div style="margin-top:6px;">
+                        ${t.status==='Draft'?`<button class="btn-sm" onclick="updateStatus('${t.id}','Dispatched')">▶ Dispatch</button>`:''}
+                        ${t.status==='Dispatched'?`<button class="btn-sm" onclick="updateStatus('${t.id}','Completed')">✓ Complete</button>`:''}
+                        <button class="btn-sm" onclick="updateStatus('${t.id}','Cancelled')">✕ Cancel</button>
+                    </div>
+                </div>
+            `).join('') || '<p>No active trips.</p>';
+        }
+        async function updateStatus(tripId, newStatus) {
+            const trip = allTrips.find(t => t.id === tripId); if (!trip) return;
+            await db.collection('trips').doc(tripId).update({ status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            if (newStatus === 'Dispatched') {
+                if (trip.vehicleId) await db.collection('vehicles').doc(trip.vehicleId).update({ status: 'On Trip' });
+                if (trip.driverId) await db.collection('drivers').doc(trip.driverId).update({ status: 'On Trip' });
+            } else if (newStatus === 'Completed' || newStatus === 'Cancelled') {
+                if (trip.vehicleId) await db.collection('vehicles').doc(trip.vehicleId).update({ status: 'Available' });
+                if (trip.driverId) await db.collection('drivers').doc(trip.driverId).update({ status: 'Available' });
+            }
+            init();
+        }
+        function logout() { sessionStorage.clear(); window.location.href = 'index.html'; }
+        init();
+        setInterval(init, 20000);
+    </script>
+</body>
+</html>
